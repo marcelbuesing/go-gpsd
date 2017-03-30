@@ -219,16 +219,16 @@ func (s *Session) Watch() ReportingChannels {
 	fmt.Fprintf(s.socket, "?WATCH={\"enable\":true,\"json\":true}")
 	chans := ReportingChannels{
 		Done:          make(chan bool),
-		ATTReport:     make(chan *ATTReport),
-		DeviceReport:  make(chan *DEVICEReport),
-		DevicesReport: make(chan *DEVICESReport),
-		ErrorReport:   make(chan *ERRORReport),
-		GSTReport:     make(chan *GSTReport),
-		PPSReport:     make(chan *PPSReport),
-		Satellite:     make(chan *Satellite),
-		SkyReport:     make(chan *SKYReport),
-		TpvReport:     make(chan *TPVReport),
-		VersionReport: make(chan *VERSIONReport),
+		ATTReport:     make(chan *ATTReport, 1),
+		DeviceReport:  make(chan *DEVICEReport, 1),
+		DevicesReport: make(chan *DEVICESReport, 1),
+		ErrorReport:   make(chan *ERRORReport, 1),
+		GSTReport:     make(chan *GSTReport, 1),
+		PPSReport:     make(chan *PPSReport, 1),
+		Satellite:     make(chan *Satellite, 1),
+		SkyReport:     make(chan *SKYReport, 1),
+		TpvReport:     make(chan *TPVReport, 1),
+		VersionReport: make(chan *VERSIONReport, 1),
 	}
 
 	go watch(chans, s)
