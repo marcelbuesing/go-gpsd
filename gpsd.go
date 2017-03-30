@@ -35,6 +35,21 @@ const (
 	Mode3D Mode = 3
 )
 
+type ReportingChannels struct {
+	Done          chan bool
+	Errors        chan error
+	ATTReport     chan *ATTReport
+	DeviceReport  chan *DEVICEReport
+	DevicesReport chan *DEVICESReport
+	ErrorReport   chan *ERRORReport
+	GSTReport     chan *GSTReport
+	PPSReport     chan *PPSReport
+	Satellite     chan *Satellite
+	SkyReport     chan *SKYReport
+	TpvReport     chan *TPVReport
+	VersionReport chan *VERSIONReport
+}
+
 type gpsdReport struct {
 	Class string `json:"class"`
 }
@@ -200,13 +215,24 @@ func Dial(address string) (session *Session, err error) {
 //    gps := gpsd.Dial(gpsd.DEFAULT_ADDRESS)
 //    done := gpsd.Watch()
 //    <- done
-func (s *Session) Watch() (done chan bool) {
+func (s *Session) Watch() ReportingChannels {
 	fmt.Fprintf(s.socket, "?WATCH={\"enable\":true,\"json\":true}")
-	done = make(chan bool)
+	chans := ReportingChannels{
+		Done:          make(chan bool),
+		ATTReport:     make(chan *ATTReport),
+		DeviceReport:  make(chan *DEVICEReport),
+		DevicesReport: make(chan *DEVICESReport),
+		ErrorReport:   make(chan *ERRORReport),
+		GSTReport:     make(chan *GSTReport),
+		PPSReport:     make(chan *PPSReport),
+		Satellite:     make(chan *Satellite),
+		SkyReport:     make(chan *SKYReport),
+		TpvReport:     make(chan *TPVReport),
+		VersionReport: make(chan *VERSIONReport),
+	}
 
-	go watch(done, s)
-
-	return
+	go watch(chans, s)
+	return chans
 }
 
 // SendCommand sends a command to GPSD
@@ -229,13 +255,7 @@ func (s *Session) AddFilter(class string, f Filter) {
 	s.filters[class] = append(s.filters[class], f)
 }
 
-func (s *Session) deliverReport(class string, report interface{}) {
-	for _, f := range s.filters[class] {
-		f(report)
-	}
-}
-
-func watch(done chan bool, s *Session) {
+func watch(chans ReportingChannels, s *Session) {
 	// We're not using a JSON decoder because we first need to inspect
 	// the JSON string to determine it's "class"
 	for {
@@ -247,57 +267,115 @@ func watch(done chan bool, s *Session) {
 					continue
 				}
 
-				if report, err2 := unmarshalReport(reportPeek.Class, lineBytes); err2 == nil {
-					s.deliverReport(reportPeek.Class, report)
-				} else {
+				if err2 := unmarshalReport(reportPeek.Class, lineBytes, chans); err2 != nil {
+					select {
+					case chans.Errors <- err:
+					default:
+					}
 					fmt.Println("JSON parsing error 2:", err)
 				}
 			} else {
+				select {
+				case chans.Errors <- err:
+				default:
+				}
 				fmt.Println("JSON parsing error:", err)
 			}
 		} else {
+			select {
+			case chans.Errors <- err:
+			default:
+			}
 			fmt.Println("Stream reader error (is gpsd running?):", err)
 		}
 	}
 }
 
-func unmarshalReport(class string, bytes []byte) (interface{}, error) {
+func unmarshalReport(class string, bytes []byte, chans ReportingChannels) error {
 	var err error
 
 	switch class {
 	case "TPV":
 		var r *TPVReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.TpvReport <- r:
+			default:
+			}
+		}
+		return err
 	case "SKY":
 		var r *SKYReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.SkyReport <- r:
+			default:
+			}
+		}
+		return err
 	case "GST":
 		var r *GSTReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.GSTReport <- r:
+			default:
+			}
+		}
+		return err
 	case "ATT":
 		var r *ATTReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.ATTReport <- r:
+			default:
+			}
+		}
+		return err
 	case "VERSION":
 		var r *VERSIONReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.VersionReport <- r:
+			default:
+			}
+		}
+		return err
 	case "DEVICES":
 		var r *DEVICESReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.DevicesReport <- r:
+			default:
+			}
+		}
+		return err
 	case "PPS":
 		var r *PPSReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.PPSReport <- r:
+			default:
+			}
+		}
+		return err
 	case "ERROR":
 		var r *ERRORReport
 		err = json.Unmarshal(bytes, &r)
-		return r, err
+		if err == nil {
+			select {
+			case chans.ErrorReport <- r:
+			default:
+			}
+		}
+		return err
 	}
 
-	return nil, err
+	return err
 }
