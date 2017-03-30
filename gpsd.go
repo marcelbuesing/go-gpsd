@@ -16,9 +16,8 @@ type Filter func(interface{})
 
 // Session represents a connection to gpsd
 type Session struct {
-	socket  net.Conn
-	reader  *bufio.Reader
-	filters map[string][]Filter
+	socket net.Conn
+	reader *bufio.Reader
 }
 
 // Mode describes status of a TPV report
@@ -204,8 +203,6 @@ func Dial(address string) (session *Session, err error) {
 
 	session.reader = bufio.NewReader(session.socket)
 	session.reader.ReadString('\n')
-	session.filters = make(map[string][]Filter)
-
 	return
 }
 
@@ -218,7 +215,6 @@ func Dial(address string) (session *Session, err error) {
 func (s *Session) Watch() ReportingChannels {
 	fmt.Fprintf(s.socket, "?WATCH={\"enable\":true,\"json\":true}")
 	chans := ReportingChannels{
-		Done:          make(chan bool),
 		ATTReport:     make(chan *ATTReport, 1),
 		DeviceReport:  make(chan *DEVICEReport, 1),
 		DevicesReport: make(chan *DEVICESReport, 1),
@@ -230,7 +226,6 @@ func (s *Session) Watch() ReportingChannels {
 		TpvReport:     make(chan *TPVReport, 1),
 		VersionReport: make(chan *VERSIONReport, 1),
 	}
-
 	go watch(chans, s)
 	return chans
 }
@@ -238,21 +233,6 @@ func (s *Session) Watch() ReportingChannels {
 // SendCommand sends a command to GPSD
 func (s *Session) SendCommand(command string) {
 	fmt.Fprintf(s.socket, "?"+command+";")
-}
-
-// AddFilter attaches a function which will be called for all
-// GPSD reports with the given class. Callback functions have type Filter.
-//
-// Example:
-//    gps := gpsd.Init(gpsd.DEFAULT_ADDRESS)
-//    gps.AddFilter("TPV", func (r interface{}) {
-//      report := r.(*gpsd.TPVReport)
-//      fmt.Println(report.Time, report.Lat, report.Lon)
-//    })
-//    done := gps.Watch()
-//    <- done
-func (s *Session) AddFilter(class string, f Filter) {
-	s.filters[class] = append(s.filters[class], f)
 }
 
 func watch(chans ReportingChannels, s *Session) {
@@ -263,10 +243,6 @@ func watch(chans ReportingChannels, s *Session) {
 			var reportPeek gpsdReport
 			lineBytes := []byte(line)
 			if err = json.Unmarshal(lineBytes, &reportPeek); err == nil {
-				if len(s.filters[reportPeek.Class]) == 0 {
-					continue
-				}
-
 				if err2 := unmarshalReport(reportPeek.Class, lineBytes, chans); err2 != nil {
 					select {
 					case chans.Errors <- err:
@@ -287,8 +263,10 @@ func watch(chans ReportingChannels, s *Session) {
 			default:
 			}
 			fmt.Println("Stream reader error (is gpsd running?):", err)
+			break
 		}
 	}
+	chans.Done <- true
 }
 
 func unmarshalReport(class string, bytes []byte, chans ReportingChannels) error {
